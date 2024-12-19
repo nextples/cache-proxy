@@ -10,7 +10,7 @@ enum {
     PORT = 8080,
     HOST_SIZE = 50,
     MAX_USERS_COUNT = 10,
-    MAX_CACHE_RECORD_SIZE = 1024 * 1024 * 4,    //4 MB
+    MAX_CACHE_RECORD_SIZE = 1024 * 1024 * 4,    // 4 MB
     WAIT_SERVER_RESPONSE_TIMEOUT = 1000,        // in ms
     CACHE_RECORD_TTL = 300,                     // in sec
     CACHE_SIZE = 1024,

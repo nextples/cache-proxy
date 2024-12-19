@@ -1,8 +1,6 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
-
-// Определение уровней логирования
 typedef enum {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -11,7 +9,6 @@ typedef enum {
     LOG_LEVEL_FATAL
 } LogLevel;
 
-// Цвета для консольного вывода
 #define COLOR_RESET   "\033[0m"
 #define COLOR_DEBUG   "\033[36m" // Cyan
 #define COLOR_INFO    "\033[32m" // Green

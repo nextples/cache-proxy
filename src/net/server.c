@@ -1,4 +1,4 @@
-#include "../../include/server.h"
+#include "server.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -8,9 +8,21 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
-#include "../../include/logger.h"
-#include "../../include/const.h"
+#include "logger.h"
+#include "const.h"
 
+
+
+/**
+ * @brief Creates and configures a server socket for listening to incoming client connections.
+ *
+ * This function sets up a socket, binds it to a specified port, and switches it to listening mode.
+ * It ensures proper error handling for socket creation, binding, and listening.
+ *
+ * @return The file descriptor for the server socket if successful, or SOCKET_ERROR on failure.
+ *
+ * @note The function logs detailed information about the socket's creation and configuration status.
+ */
 int create_server_socket() {
     struct sockaddr_in server_addr;
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -45,6 +57,17 @@ int create_server_socket() {
     return server_socket;
 }
 
+/**
+ * @brief Establishes a connection to a remote server.
+ *
+ * This function resolves the host's address using DNS, creates a socket, and connects to the resolved address.
+ *
+ * @param host The hostname or IP address of the remote server.
+ * @return The file descriptor for the connected socket if successful, or SOCKET_ERROR on failure.
+ *
+ * @note Proper error handling is implemented for DNS resolution, socket creation, and connection attempts.
+ * The function logs relevant details for debugging.
+ */
 int connect_to_remote(char *host) {
     struct addrinfo hints = {0}, *res0;
     hints.ai_family = AF_INET;
@@ -77,6 +100,18 @@ int connect_to_remote(char *host) {
     return dest_socket;
 }
 
+/**
+ * @brief Reads a request from a connected client socket.
+ *
+ * This function receives data from the client's socket, storing it in the provided buffer. It handles
+ * scenarios where the connection is closed or an error occurs during reading.
+ *
+ * @param client_socket The socket descriptor for communication with the client.
+ * @param request A buffer to store the received request. It must have a size of at least MAX_BUFFER_SIZE.
+ * @return EXIT_SUCCESS if the request is successfully read, or EXIT_FAILURE on failure.
+ *
+ * @note The function appends a null terminator to the request and logs detailed information about the received data.
+ */
 int read_request(int client_socket, char *request) {
     ssize_t bytes_read = read(client_socket, request, MAX_BUFFER_SIZE);
     if (bytes_read < 0) {

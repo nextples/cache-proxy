@@ -1,20 +1,51 @@
-#include "../../include/cache.h"
+#include "cache.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "../../include/const.h"
-#include "../../include/logger.h"
+#include "const.h"
+#include "logger.h"
 
-//TODO: перейти на потокобезопасную систему
-//TODO: реализовать функцию для отслеживания состояния кэша
-//TODO: реализовать GC
+/**
+ * @brief Задумка работы кэша (ala LRU-Cache)
+ *
+ * Этот кэш представляет собой структуру данных вида ключ-значение
+ * с поддержкой автоматического удаления устаревших записей. Кэш работает по следующим принципам:
+ *
+ * 1. **Хэш-таблица с двусвязным списком**:
+ *    - Данные хранятся в хэш-таблице для быстрого доступа по ключу.
+ *    - Каждая запись дополнительно связана в двусвязный список для организации порядка записей.
+ *    - Самые новые записи находятся в конце списка, а самые старые — в начале.
+ *    - Для разрешения случаев коллизий используется метод хэш-цепочек.
+ *
+ * 2. **Устаревание данных**:
+ *    - Каждая запись имеет поле `expires_at`, которое указывает время, в течение которого данная кэш-запись считается актуальной.
+ *    - При доступе к записи кэш проверяет, не устарела ли она. Если срок действия истёк, запись удаляется.
+ *
+ * 3. **Механизм удаления**:
+ *    - Если кэш достигает максимального размера, автоматически удаляется самая старая запись.
+ *    - Устаревшие записи также удаляются при добавлении новых записей или при вызове функции удаления устаревших записей.
+ *
+ * 4. **Потокобезопасность**:
+ *    - Все операции записи, удаления или доступа защищены мьютексом для предотвращения конфликтов в многопоточной среде.
+ *    - Однако некоторые функции помечены как небезопасные для потоков (например, работа с устаревшими записями)
+ *      и должны вызываться только внутри защищённого контекста.
+ *
+ * 5. **Обновление записей**:
+ *    - Если запись с тем же ключом уже существует, она обновляется (включая данные и время истечения)
+ *      и перемещается в конец списка как наиболее свежая.
+ *
+ */
 
 void remove_cache_node(cache_t *cache, cache_node_t *node_to_remove);
 void remove_expired_nodes(cache_t *cache);
 
-// Функция хеширования
+/**
+ * @brief Calculates a hash for a given string.
+ * @param key The key for which the hash needs to be calculated.
+ * @return The hash value.
+ */
 unsigned int hash_function(const char *key) {
     unsigned int hash = 0;
     while (*key) {
@@ -23,7 +54,14 @@ unsigned int hash_function(const char *key) {
     return hash % HASH_TABLE_SIZE;
 }
 
-// Создание новой ноды
+/**
+ * @brief Creates a new cache node.
+ * @param key The key for the cache entry.
+ * @param response The response to be stored in the cache.
+ * @param response_size The size of the response.
+ * @param expires_at The expiration time of the cache entry.
+ * @return A pointer to the created cache node, or NULL in case of an error.
+ */
 cache_node_t *create_cache_node(const char *key, const char *response, const size_t response_size, const time_t expires_at) {
     cache_node_t *node = (cache_node_t *)malloc(sizeof(cache_node_t));
     if (!node) {
@@ -51,7 +89,10 @@ cache_node_t *create_cache_node(const char *key, const char *response, const siz
     return node;
 }
 
-// Удаление ноды
+/**
+ * @brief Frees the memory occupied by a cache node.
+ * @param node The cache node to be freed.
+ */
 void free_cache_node(cache_node_t *node) {
     if (node) {
         free(node->key);
@@ -60,7 +101,11 @@ void free_cache_node(cache_node_t *node) {
     }
 }
 
-// Создание кэша
+/**
+ * @brief Creates a new cache with a specified maximum size.
+ * @param max_size The maximum number of entries in the cache.
+ * @return A pointer to the created cache, or NULL in case of an error.
+ */
 cache_t *create_cache(size_t max_size) {
     cache_t *cache = (cache_t *) malloc(sizeof(cache_t));
     if (!cache) {
@@ -92,14 +137,18 @@ cache_t *create_cache(size_t max_size) {
     return cache;
 }
 
-// Перемещение ноды в конец списка
-// not thread safety function, use only under mutex
+/**
+ * @brief Moves the specified node to the end of the cache's list.
+ * @param cache A pointer to the cache.
+ * @param node The node to be moved to the tail.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
 void move_to_tail(cache_t *cache, cache_node_t *node) {
     if (cache->tail == node) {
-        return; // Уже в конце
+        return;
     }
 
-    // Удалить ноду из текущей позиции
+    // remove node from the current position
     if (node->prev) {
         node->prev->next = node->next;
     }
@@ -110,7 +159,7 @@ void move_to_tail(cache_t *cache, cache_node_t *node) {
         cache->head = node->next;
     }
 
-    // Добавить ноду в конец
+    // add node to the tail
     node->prev = cache->tail;
     node->next = NULL;
     if (cache->tail) {
@@ -119,10 +168,12 @@ void move_to_tail(cache_t *cache, cache_node_t *node) {
     cache->tail = node;
 }
 
-// Удаление устаревшей ноды
-// not thread safety function. Use only under mutex
+/**
+ * @brief Removes the first node (head) from the cache's list.
+ * @param cache A pointer to the cache.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
 void remove_head(cache_t *cache) {
-
     if (!cache->head) return;
 
     cache_node_t *node = cache->head;
@@ -135,7 +186,7 @@ void remove_head(cache_t *cache) {
     cache_node_t *current = *bucket;
     cache_node_t *prev = NULL;
 
-    // Удалить ноду из хеш-цепочки
+    // remove node from the hash-chain
     while (current) {
         if (current == node) {
             if (prev) {
@@ -153,15 +204,30 @@ void remove_head(cache_t *cache) {
     cache->current_size--;
 }
 
+/**
+ * @brief Checks if the cache is empty.
+ * @param cache A pointer to the cache.
+ * @return 1 if the cache is empty, 0 otherwise.
+ */
 int is_empty(const cache_t *cache) {
     return cache->current_size == 0;
 }
 
+/**
+ * @brief Checks if the cache is full.
+ * @param cache A pointer to the cache.
+ * @return 1 if the cache is full, 0 otherwise.
+ */
 int is_full(const cache_t *cache) {
-    return cache->current_size == cache->max_size;
+    return cache->current_size >= cache->max_size;
 }
 
-// Добавление записи в кэш
+/**
+ * @brief Adds an entry to the cache.
+ * @param cache A pointer to the cache.
+ * @param new_node A pointer to the node to be added.
+ * @return 0 if the operation is successful, or an error code otherwise.
+ */
 int cache_put(cache_t *cache, cache_node_t *new_node) {
     pthread_mutex_lock(&cache->lock);
     log_message(LOG_LEVEL_DEBUG, "Lock cache mutex while put node");
@@ -182,7 +248,7 @@ int cache_put(cache_t *cache, cache_node_t *new_node) {
     cache_node_t **bucket = &cache->hash_table[hash];
     cache_node_t *node = *bucket;
 
-    // Если запись уже существует, обновить её
+    // if record exists already, then update it
     while (node) {
         if (strcmp(node->key, new_node->key) == 0) {
             log_message(LOG_LEVEL_DEBUG, "Node already exists. Cache will be update");
@@ -206,17 +272,17 @@ int cache_put(cache_t *cache, cache_node_t *new_node) {
         }
         node = node->hash_next;
     }
-
     log_message(LOG_LEVEL_DEBUG, "Response was not found in cache. Node will be pushed");
-    // Если кэш переполнен, удалить самую старую запись
-    if (cache->current_size >= cache->max_size) {
+
+    // if cache is full, then remove the oldest node
+    if (is_full(cache)) {
         log_message(LOG_LEVEL_INFO, "Cache is full. Start removing head");
         remove_head(cache);
         log_message(LOG_LEVEL_INFO, "Cache head node was removed");
         log_message(LOG_LEVEL_DEBUG, "Current cache size = %ld", cache->current_size);
     }
 
-    // Добавить новую запись
+    // add new record
     new_node->hash_next = *bucket;
     *bucket = new_node;
 
@@ -237,7 +303,12 @@ int cache_put(cache_t *cache, cache_node_t *new_node) {
     return 0;
 }
 
-// Получение записи из кэша
+/**
+ * @brief Retrieves an entry from the cache by its key.
+ * @param cache A pointer to the cache.
+ * @param key The key of the entry to retrieve.
+ * @return A pointer to the found node, or NULL if the entry is missing or expired.
+ */
 cache_node_t *cache_get(cache_t *cache, const char *key) {
     pthread_mutex_lock(&cache->lock);
     log_message(LOG_LEVEL_DEBUG, "Lock cache mutex while getting node");
@@ -287,34 +358,39 @@ cache_node_t *cache_get(cache_t *cache, const char *key) {
     return NULL;
 }
 
-// not thread safety function, use only under mutex
-void remove_cache_node(cache_t *cache, cache_node_t *node_to_remove) {
-    if (!cache || !node_to_remove) {
-        log_message(LOG_LEVEL_WARNING, "Invalid arguments to remove_cache_node");
+/**
+ * @brief Removes a node from the linked list and hash table.
+ * @param cache A pointer to the cache.
+ * @param node The node to be removed.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
+static void remove_node_from_cache(cache_t *cache, cache_node_t *node) {
+    if (!node) {
+        log_message(LOG_LEVEL_WARNING, "Invalid arguments to remove_node_from_cache");
         return;
     }
 
-    // Удаление из двусвязного списка
-    if (node_to_remove->prev) {
-        node_to_remove->prev->next = node_to_remove->next;
+    // delete from double-linked list
+    if (node->prev) {
+        node->prev->next = node->next;
     } else {
-        cache->head = node_to_remove->next; // Если нода была головой
+        cache->head = node->next; // if node was the head
     }
 
-    if (node_to_remove->next) {
-        node_to_remove->next->prev = node_to_remove->prev;
+    if (node->next) {
+        node->next->prev = node->prev;
     } else {
-        cache->tail = node_to_remove->prev; // Если нода была хвостом
+        cache->tail = node->prev; // if node was the tail
     }
 
-    // Удаление из хэш-таблицы
-    unsigned int hash = hash_function(node_to_remove->key);
+    // remove from hash table
+    unsigned int hash = hash_function(node->key);
     cache_node_t **bucket = &cache->hash_table[hash];
     cache_node_t *current = *bucket;
     cache_node_t *prev = NULL;
 
     while (current) {
-        if (current == node_to_remove) {
+        if (current == node) {
             if (prev) {
                 prev->hash_next = current->hash_next;
             } else {
@@ -326,18 +402,63 @@ void remove_cache_node(cache_t *cache, cache_node_t *node_to_remove) {
         current = current->hash_next;
     }
 
-    // Удаляем ноду из памяти
-    free_cache_node(node_to_remove);
-
-    // Обновляем текущий размер кэша
+    free_cache_node(node);
     cache->current_size--;
 
-    log_message(LOG_LEVEL_INFO, "Cache node removed successfully");
-    log_message(LOG_LEVEL_DEBUG, "Current cache size = %ld", cache->current_size);
+    log_message(LOG_LEVEL_INFO, "Node removed successfully");
 }
 
 
-// Удаление кэша
+/**
+ * @brief Removes a specified node from the cache.
+ * @param cache A pointer to the cache.
+ * @param node_to_remove The node to be removed.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
+void remove_cache_node(cache_t *cache, cache_node_t *node_to_remove) {
+    if (!cache || !node_to_remove) {
+        log_message(LOG_LEVEL_WARNING, "Invalid arguments to remove_cache_node");
+        return;
+    }
+
+    remove_node_from_cache(cache, node_to_remove);
+
+    log_message(LOG_LEVEL_DEBUG, "Current cache size = %ld", cache->current_size);
+}
+
+/**
+ * @brief Removes expired entries from the cache.
+ * @param cache A pointer to the cache.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
+void remove_expired_nodes(cache_t *cache) {
+    if (!cache) {
+        log_message(LOG_LEVEL_WARNING, "Invalid cache pointer in remove_expired_nodes");
+        return;
+    }
+
+    log_message(LOG_LEVEL_DEBUG, "Removing expired nodes...");
+
+    time_t now = time(NULL);
+    cache_node_t *current = cache->head;
+
+    while (current) {
+        cache_node_t *next = current->next;
+
+        if (current->expires_at < now) {
+            remove_node_from_cache(cache, current);
+        }
+        current = next;
+    }
+
+    log_message(LOG_LEVEL_INFO, "Expired nodes removal completed");
+    log_message(LOG_LEVEL_DEBUG, "Current cache size = %ld", cache->current_size);
+}
+
+/**
+ * @brief Deletes the entire cache and frees all allocated resources.
+ * @param cache A pointer to the cache.
+ */
 void delete_cache(cache_t *cache) {
     pthread_mutex_lock(&cache->lock);
 
@@ -356,68 +477,4 @@ void delete_cache(cache_t *cache) {
 
     free(cache);
     log_message(LOG_LEVEL_INFO, "Cache was removed");
-}
-
-// not thread safety function. use only under mutex
-void remove_expired_nodes(cache_t *cache) {
-    if (!cache) {
-        log_message(LOG_LEVEL_WARNING, "Invalid cache pointer in remove_expired_nodes");
-        return;
-    }
-
-    log_message(LOG_LEVEL_DEBUG, "Removing expired nodes...");
-
-    time_t now = time(NULL); // Получаем текущее время
-    cache_node_t *current = cache->head;
-
-    while (current) {
-        cache_node_t *next = current->next; // Сохраняем указатель на следующую ноду
-
-        if (current->expires_at < now) {
-            // log_message(LOG_LEVEL_INFO, "Removing expired node with key: %s", current->key);
-
-            // Удаляем из двусвязного списка
-            if (current->prev) {
-                current->prev->next = current->next;
-            } else {
-                cache->head = current->next; // Если нода была головой
-            }
-
-            if (current->next) {
-                current->next->prev = current->prev;
-            } else {
-                cache->tail = current->prev; // Если нода была хвостом
-            }
-
-            // Удаляем из хэш-таблицы
-            unsigned int hash = hash_function(current->key);
-            cache_node_t **bucket = &cache->hash_table[hash];
-            cache_node_t *node = *bucket;
-            cache_node_t *prev = NULL;
-
-            while (node) {
-                if (node == current) {
-                    if (prev) {
-                        prev->hash_next = node->hash_next;
-                    } else {
-                        *bucket = node->hash_next;
-                    }
-                    break;
-                }
-                prev = node;
-                node = node->hash_next;
-            }
-
-            // Удаляем ноду из памяти
-            free_cache_node(current);
-            cache->current_size--;
-
-            log_message(LOG_LEVEL_INFO, "Expired node removed successfully");
-        }
-
-        current = next; // Переходим к следующей ноде
-    }
-
-    log_message(LOG_LEVEL_INFO, "Expired nodes removal completed");
-    log_message(LOG_LEVEL_DEBUG, "Current cache size = %ld", cache->current_size);
 }

@@ -1,4 +1,4 @@
-#include "../../include/proxy.h"
+#include "proxy.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -11,11 +11,11 @@
 #include <arpa/inet.h>
 #include <assert.h>
 
-#include "../../include/logger.h"
-#include "../../include/utils.h"
-#include "../../include/server.h"
-#include "../../include/cache.h"
-#include "../../include/const.h"
+#include "logger.h"
+#include "utils.h"
+#include "server.h"
+#include "cache.h"
+#include "const.h"
 
 int server_is_on = 1;
 cache_t *cache;
@@ -24,6 +24,12 @@ int cur_client_numb = 0;
 
 void free_context(context *ctx);
 
+/**
+ * @brief Removes a node from the linked list and hash table.
+ * @param cache A pointer to the cache.
+ * @param node The node to be removed.
+ * @note This function is not thread-safe. Use it only under a mutex lock.
+ */
 int send_from_cache(const char *request, int client_socket) {
     log_message(LOG_LEVEL_INFO, "Trying to send response from cache...");
     cache_node_t *node = cache_get(cache, request);
@@ -41,6 +47,20 @@ int send_from_cache(const char *request, int client_socket) {
     return EXIT_SUCCESS;
 }
 
+/**
+ * @brief Handles an individual client's request in a dedicated thread.
+ *
+ * This function processes the request sent by the client. It attempts to fetch the response
+ * from the cache first. If no cached response is available, it forwards the request to a remote
+ * server, receives the response, and forwards it back to the client. The response is cached if
+ * it is within the allowable size limit.
+ *
+ * @param arg A pointer to the context structure containing the client's request and socket.
+ * @return NULL always, as the function operates in a detached thread.
+ *
+ * @note The function handles errors such as connection issues, data sending/receiving errors,
+ * and timeout scenarios gracefully by releasing resources and logging detailed information.
+ */
 void* handle_client_request(void *arg) {
     context *ctx = arg;
     int client_socket = ctx->client_socket;
@@ -94,7 +114,7 @@ void* handle_client_request(void *arg) {
 
     struct pollfd fds = {0};
     fds.fd = dest_socket;
-    fds.events = POLLIN; // Ждём данных для чтения
+    fds.events = POLLIN; // wait new data in fd mode
 
     char* cached_response = calloc(MAX_CACHE_RECORD_SIZE, sizeof(char));
 
@@ -191,6 +211,19 @@ void* handle_client_request(void *arg) {
     return NULL;
 }
 
+/**
+ * @brief Accepts new client connections and delegates their handling to separate threads.
+ *
+ * This function listens for incoming client connections on the server socket. For each accepted
+ * client, it creates a new context structure to store client-specific data, spawns a detached thread
+ * to process the client's request, and tracks the number of active clients.
+ *
+ * @param server_socket The socket descriptor used for listening to incoming client connections.
+ *
+ * @note This function continuously accepts clients until the `server_is_on` flag is set to 0.
+ * It manages resources such as client sockets and context structures, ensuring proper cleanup
+ * in case of errors.
+ */
 void accept_new_client(int server_socket) {
     while (server_is_on) {
         struct sockaddr_in client_addr;
@@ -254,6 +287,13 @@ void accept_new_client(int server_socket) {
     }
 }
 
+/**
+ * @brief Frees memory allocated for a client context.
+ *
+ * This function releases the memory used by the context structure and its associated request data.
+ *
+ * @param ctx A pointer to the context structure to be freed.
+ */
 void free_context(context *ctx) {
     if (ctx != NULL) {
         if (ctx->request != NULL) {
@@ -263,6 +303,16 @@ void free_context(context *ctx) {
     }
 }
 
+/**
+ * @brief Runs the proxy server.
+ *
+ * This function initializes the server and its resources, such as the cache and thread semaphore.
+ * It sets up the server socket, begins listening for incoming connections, and processes each
+ * client request. Upon termination, the function releases all allocated resources.
+ *
+ * @note The server operates indefinitely until the `server_is_on` flag is set to 0. Proper error
+ * handling is in place for socket creation, cache initialization, and client handling.
+ */
 void run_proxy() {
     sem_init(&thread_semaphore, 0, MAX_USERS_COUNT);
 

@@ -15,3 +15,5 @@ add_executable(cache_proxy src/main.c
         src/net/server.c
         src/utils/utils.c
         src/net/proxy.c)
+
+include_directories(${CMAKE_SOURCE_DIR}/include)
