@@ -131,5 +131,6 @@ void log_message(LogLevel level, const char *format, ...) {
 
     if (log_to_console) {
         fprintf(stdout, "%s%s%s", log_level_to_color(level), full_message, COLOR_RESET);
+        fflush(stdout);
     }
 }

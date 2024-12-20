@@ -246,6 +246,7 @@ void accept_new_client(int server_socket) {
         if (err == EXIT_FAILURE) {
             free(request);
             close(client_socket);
+            log_message(LOG_LEVEL_ERROR, "Connection closed");
             continue;
         }
 

@@ -6,8 +6,9 @@
 #define END_STR '\0'
 
 enum {
-    MAX_BUFFER_SIZE = 1024 * 16,                // 16 KB
-    PORT = 8080,
+    MAX_BUFFER_SIZE = 1024,                     // 1 KB
+    MAX_REQUEST_SIZE = 1024 * 64,               // 64 KB
+    PORT = 8081,
     HOST_SIZE = 50,
     MAX_USERS_COUNT = 10,
     MAX_CACHE_RECORD_SIZE = 1024 * 1024 * 4,    // 4 MB

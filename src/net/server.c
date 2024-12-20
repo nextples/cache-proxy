@@ -11,7 +11,7 @@
 #include "logger.h"
 #include "const.h"
 
-
+int update_connection_header(char *request);
 
 /**
  * @brief Creates and configures a server socket for listening to incoming client connections.
@@ -100,31 +100,90 @@ int connect_to_remote(char *host) {
     return dest_socket;
 }
 
-/**
- * @brief Reads a request from a connected client socket.
- *
- * This function receives data from the client's socket, storing it in the provided buffer. It handles
- * scenarios where the connection is closed or an error occurs during reading.
- *
- * @param client_socket The socket descriptor for communication with the client.
- * @param request A buffer to store the received request. It must have a size of at least MAX_BUFFER_SIZE.
- * @return EXIT_SUCCESS if the request is successfully read, or EXIT_FAILURE on failure.
- *
- * @note The function appends a null terminator to the request and logs detailed information about the received data.
- */
+//TODO: write the annotation
 int read_request(int client_socket, char *request) {
-    ssize_t bytes_read = read(client_socket, request, MAX_BUFFER_SIZE);
-    if (bytes_read < 0) {
-        log_message(LOG_LEVEL_ERROR, "Error while reading request");
-        close(client_socket);
+    log_message(LOG_LEVEL_INFO, "Reading request from client");
+    if (request == NULL) {
+        log_message(LOG_LEVEL_ERROR, "Error while reading request. Request's buffer is not initialized");
         return EXIT_FAILURE;
     }
-    if (bytes_read == 0) {
-        log_message(LOG_LEVEL_ERROR, "Error while reading request: connection closed from client");
-        close(client_socket);
+
+    char buffer[MAX_BUFFER_SIZE];
+    size_t all_bytes_read = 0;
+    int err = 0;
+
+    while (1) {
+        ssize_t bytes_read = read(client_socket, buffer, sizeof(buffer));
+        if (bytes_read < 0) {
+            log_message(LOG_LEVEL_ERROR, "Error while reading request");
+            return EXIT_FAILURE;
+        }
+        if (bytes_read == 0) {
+            log_message(LOG_LEVEL_INFO, "Connection closed by client");
+            err = 1;
+            break;
+        }
+
+        if (all_bytes_read + bytes_read > MAX_REQUEST_SIZE) {
+            log_message(LOG_LEVEL_ERROR, "Request too large. Buffer is overloaded");
+            return EXIT_FAILURE;
+        }
+
+        memcpy(request + all_bytes_read, buffer, bytes_read);
+        all_bytes_read += bytes_read;
+
+        char *headers_end = strstr(request, "\r\n\r\n");
+        if (headers_end != NULL) {
+            break; // because supported only GET HTTP/1.0
+        }
+    }
+
+    if (all_bytes_read < MAX_REQUEST_SIZE && err == 0) {
+        request[all_bytes_read] = END_STR;
+        log_message(LOG_LEVEL_INFO, "Request received successfully");
+        log_message(LOG_LEVEL_DEBUG, "Request body: %s", request);
+        err = update_connection_header(request);
+        if (err == EXIT_FAILURE) {
+            log_message(LOG_LEVEL_WARNING, "Request header was not swapped to \"close\"");
+        }
+
+    } else {
+        log_message(LOG_LEVEL_ERROR, "Request is too large or wasn't read until end");
         return EXIT_FAILURE;
     }
-    request[bytes_read] = END_STR;
-    log_message(LOG_LEVEL_INFO, "Request received from client: %s", request);
+
+    return EXIT_SUCCESS;
+}
+
+int update_connection_header(char *request) {
+    log_message(LOG_LEVEL_INFO, "Updating connection header to closed");
+    if (request == NULL) {
+        log_message(LOG_LEVEL_WARNING, "Error while reading request. Request's buffer is not initialized");
+        return EXIT_FAILURE;
+    }
+
+    char *connection_header = strstr(request, "Connection:");
+    if (connection_header == NULL) {
+        log_message(LOG_LEVEL_INFO, "Header \"Connection\" was not found in request");
+        return EXIT_FAILURE;
+    }
+
+    char *value_start = connection_header + strlen("Connection:");
+    while (*value_start == ' ' || *value_start == '\t') {
+        value_start++; // skip spaces
+    }
+
+    // find string end
+    char *value_end = strstr(value_start, "\r\n");
+    if (value_end == NULL) {
+    log_message(LOG_LEVEL_ERROR, "Error while swapping connection header");
+        return EXIT_FAILURE;
+    }
+
+    size_t header_size = value_end - value_start;
+    memset(value_start, ' ', header_size);
+    strncpy(value_start, "close", 5);
+    log_message(LOG_LEVEL_INFO, "Header \"Connection\" successfully swapped to \"close\"");
+    log_message(LOG_LEVEL_DEBUG, "Updated request body: %s", request);
     return EXIT_SUCCESS;
 }
