@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.29)
 project(cache_proxy C)
 
-set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD 11)
 
 include(FetchContent)
 
@@ -16,7 +16,14 @@ add_executable(cache_proxy src/main.c
         src/utils/logger.c
         src/net/server.c
         src/utils/utils.c
-        src/net/proxy.c)
+        src/net/proxy.c
+        src/cache/stream.c
+        include/stream.h
+        src/net/response_reader.c
+        include/response_reader.h
+        src/net/response_writer.c
+        include/response_writer.h
+)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
