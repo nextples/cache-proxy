@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "const.h"
+#include "http_parser.h"
 #include "logger.h"
 #include "proxy.h"
 #include "server.h"
@@ -36,6 +37,10 @@ int send_request(const int fd, const char *request) {
     return 0;
 }
 
+int extract_headers(char *buffer) {
+
+}
+
 void *response_writer_thread(void *args) {
     log_message(LOG_LEVEL_INFO, "[Writer] Thread started...");
     context_t *ctx = (context_t *) args;
@@ -43,8 +48,6 @@ void *response_writer_thread(void *args) {
     sem_t *semaphore = ctx->semaphore;
     char *request = ctx->request;
     unsigned char host[HOST_SIZE];
-    response_headers_t headers = {};
-    int is_headers_set = 0;
 
     extract_host(request, host);
     const int remote_server = connect_to_remote(host);
@@ -58,21 +61,35 @@ void *response_writer_thread(void *args) {
         close(remote_server);
         return NULL;
     }
+    http_resp_stat_t *headers = stream->stat;
 
     char buffer[MAX_BUFFER_SIZE];
-    int total_read = 0, read_bytes = 0, total_written = 0;
+    int total_read = 0, read_bytes = 0, total_written = 0, response_len = 0, to_read = 0;;
     size_t written = 0;
 
     log_message(LOG_LEVEL_INFO, "[Writer] Starting transfer response...");
     while (1) {
         memset(buffer, 0, MAX_BUFFER_SIZE);
-        read_bytes = read(remote_server, buffer, MAX_BUFFER_SIZE);
+        if (headers->total_length != -1) {
+            // response_len = (headers.content_length + strlen(headers.headers_all) > MAX_BUFFER_SIZE) ? MAX_BUFFER_SIZE : headers.content_length;
+            response_len = headers->content_length + headers->total_length;
+            to_read = (response_len - total_read > MAX_BUFFER_SIZE) ? MAX_BUFFER_SIZE : response_len - total_read;
+        }
+        else {
+            to_read = MAX_BUFFER_SIZE;
+        }
+        read_bytes = read(remote_server, buffer, to_read);
         if (read_bytes > 0) {
             total_read += read_bytes;
             log_message(LOG_LEVEL_DEBUG, "Read %d bytes from server. Total: %d bytes", read_bytes, total_read);
 
-            if (is_headers_set == 0) {
-                //TODO: parse headers
+            if (headers->headers && headers->status_code == -1) {
+                http_response_parse(buffer, headers);
+                if (headers->status_code != 200) {
+                    atomic_store(&stream->error, 1);
+                    log_message(LOG_LEVEL_WARNING, "HTTP Response status code != 200!. Response will not be cached");
+                    break;
+                }
             }
 
             stream_write(stream, buffer, read_bytes);

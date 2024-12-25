@@ -12,10 +12,10 @@ add_executable(cache_proxy src/main.c
         include/server.h
         include/proxy.h
         include/logger.h
-        include/utils.h
+        include/http_parser.h
         src/utils/logger.c
         src/net/server.c
-        src/utils/utils.c
+        src/utils/http_parser.c
         src/net/proxy.c
         src/cache/stream.c
         include/stream.h

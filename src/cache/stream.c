@@ -23,7 +23,13 @@ void stream_init(stream_t *stream, size_t capacity) {
     pthread_mutex_init(&stream->lock, NULL);
     pthread_cond_init(&stream->can_write, NULL);
     pthread_cond_init(&stream->can_read, NULL);
+    pthread_cond_init(&stream->can_del, NULL);
     atomic_init(&stream->readers, 0);
+    atomic_init(&stream->is_finished, 0);
+    atomic_init(&stream->error, 0);
+    http_resp_stat_t *response = calloc(1, sizeof(http_resp_stat_t));
+    http_response_init(response);
+    stream->stat = response;
     log_message(LOG_LEVEL_INFO, "Stream initialized successfully");
 }
 
@@ -126,7 +132,7 @@ size_t stream_read_all_to(stream_t *stream, const int fd, const size_t from) {
     const size_t data_len = stream->size;
     size_t offset = from;
 
-    if (from >= data_len) {
+    if (from > data_len) {
         log_message(LOG_LEVEL_ERROR, "Start position exceeds available data size");
         pthread_rwlock_unlock(&stream->rw_lock);
         log_message(LOG_LEVEL_DEBUG, "Stream [%p] rwlock unlocked", stream);

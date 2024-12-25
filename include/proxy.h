@@ -12,11 +12,6 @@ typedef struct {
     sem_t *semaphore;
 } context_t;
 
-typedef struct {
-    int status_code;
-    long content_length;
-} response_headers_t;
-
 void run_proxy();
 
 void free_context(context_t *ctx);

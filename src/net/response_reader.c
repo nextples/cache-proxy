@@ -27,7 +27,7 @@ void *response_reader_thread(void *args) {
     }
 
     size_t pos = 0;
-    while(!stream->is_finished /* || stream->error != 1 */) {
+    while(!atomic_load(&stream->is_finished)) {
         int written = stream_read_to(stream, client_socket, MAX_BUFFER_SIZE, pos);
         if (written < 0) {
             log_message(LOG_LEVEL_ERROR, "[Reader] Failed to read from stream");
@@ -39,9 +39,7 @@ void *response_reader_thread(void *args) {
         pos += written;
     }
 
-    if (stream->is_finished) {;
-        stream_read_all_to(stream, client_socket, pos);
-    }
+    stream_read_all_to(stream, client_socket, pos);
 
     close(client_socket);
     sem_post(semaphore);

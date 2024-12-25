@@ -5,6 +5,8 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+#include "http_parser.h"
+
 typedef struct stream {
     char *data;
     size_t size;
@@ -14,10 +16,14 @@ typedef struct stream {
 
     pthread_cond_t can_read;
     pthread_cond_t can_write;
+    pthread_cond_t can_del;
     pthread_mutex_t lock;
 
     atomic_int is_finished;
     atomic_int readers;
+    atomic_int error;
+
+    http_resp_stat_t *stat;
 } stream_t;
 
 void stream_init(stream_t *stream, size_t capacity);

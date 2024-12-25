@@ -53,6 +53,13 @@ void accept_new_client(int server_socket, cache_t *cache) {
         log_message(LOG_LEVEL_INFO, "Started handling new client. Current clients numbers = %d", MAX_USERS_COUNT - cur_client_cnt);
 
         int is_node_exist = cache_put(cache, request);
+        int response_err = 0;
+        if (is_node_exist) {
+            stream_t *stream = cache_get_stream(cache, request);
+            if (stream) {
+                response_err = atomic_load(&stream->error);
+            }
+        }
 
         context_t *ctx = malloc(sizeof(context_t));
         if (ctx == NULL) {
@@ -75,7 +82,7 @@ void accept_new_client(int server_socket, cache_t *cache) {
         pthread_attr_init(&attr);
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-        if (is_node_exist == 0) {
+        if (is_node_exist == 0 || response_err) {
             int err1 = pthread_create(&response_writer, &attr, response_writer_thread, ctx);
             if (err1 == PTHREAD_ERROR) {
                 log_message(LOG_LEVEL_ERROR, "Error while creating writer thread: %s", strerror(errno));
