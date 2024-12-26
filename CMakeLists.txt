@@ -19,10 +19,10 @@ add_executable(cache_proxy src/main.c
         src/net/proxy.c
         src/cache/stream.c
         include/stream.h
-        src/net/response_reader.c
-        include/response_reader.h
-        src/net/response_writer.c
-        include/response_writer.h
+        src/net/client_side.c
+        include/client_side.h
+        src/net/server_side.c
+        include/server_side.h
 )
 
 include_directories(${CMAKE_SOURCE_DIR}/include)

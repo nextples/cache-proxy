@@ -9,6 +9,7 @@ typedef struct {
     int client_socket;
     char *request;
     cache_t *cache;
+    cache_node_t *node;
     sem_t *semaphore;
 } context_t;
 

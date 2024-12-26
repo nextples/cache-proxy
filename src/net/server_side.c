@@ -1,4 +1,4 @@
-#include "response_writer.h"
+#include "server_side.h"
 
 #include <semaphore.h>
 #include <stdio.h>
@@ -37,15 +37,10 @@ int send_request(const int fd, const char *request) {
     return 0;
 }
 
-int extract_headers(char *buffer) {
-
-}
-
 void *response_writer_thread(void *args) {
     log_message(LOG_LEVEL_INFO, "[Writer] Thread started...");
     context_t *ctx = (context_t *) args;
     cache_t *cache = ctx->cache;
-    sem_t *semaphore = ctx->semaphore;
     char *request = ctx->request;
     unsigned char host[HOST_SIZE];
 
@@ -53,10 +48,10 @@ void *response_writer_thread(void *args) {
     const int remote_server = connect_to_remote(host);
     send_request(remote_server, request);
 
-    stream_t *stream = cache_get_stream(cache, request);
+    stream_t *stream = ctx->node->stream;
     if (stream == NULL) {
-        log_message(LOG_LEVEL_ERROR, "[Writer] Failed to get stream from cache");
-        sem_post(semaphore);
+        log_message(LOG_LEVEL_ERROR, "[Writer] Failed to get stream from context");
+        if (atomic_load(&ctx->node->stream->is_finished) == 1)
         free_context(ctx);
         close(remote_server);
         return NULL;
@@ -66,12 +61,12 @@ void *response_writer_thread(void *args) {
     char buffer[MAX_BUFFER_SIZE];
     int total_read = 0, read_bytes = 0, total_written = 0, response_len = 0, to_read = 0;;
     size_t written = 0;
+    cache_node_t *error_node = NULL;
 
     log_message(LOG_LEVEL_INFO, "[Writer] Starting transfer response...");
     while (1) {
         memset(buffer, 0, MAX_BUFFER_SIZE);
         if (headers->total_length != -1) {
-            // response_len = (headers.content_length + strlen(headers.headers_all) > MAX_BUFFER_SIZE) ? MAX_BUFFER_SIZE : headers.content_length;
             response_len = headers->content_length + headers->total_length;
             to_read = (response_len - total_read > MAX_BUFFER_SIZE) ? MAX_BUFFER_SIZE : response_len - total_read;
         }
@@ -86,12 +81,18 @@ void *response_writer_thread(void *args) {
             if (headers->headers && headers->status_code == -1) {
                 http_response_parse(buffer, headers);
                 if (headers->status_code != 200) {
+                    log_message(LOG_LEVEL_WARNING, "HTTP Response status code != 200! Response will not be cached");
                     atomic_store(&stream->error, 1);
-                    log_message(LOG_LEVEL_WARNING, "HTTP Response status code != 200!. Response will not be cached");
+                    error_node = cache_remove(cache, request);
+                    stream_write(stream, buffer, read_bytes);
+
+                    log_message(LOG_LEVEL_INFO, "Error node was removed from cache");
+                    if (!error_node) {
+                        log_message(LOG_LEVEL_ERROR, "[Writer] Failed to remove request from cache");
+                    }
                     break;
                 }
             }
-
             stream_write(stream, buffer, read_bytes);
 
             written += read_bytes;
@@ -103,7 +104,6 @@ void *response_writer_thread(void *args) {
             break;
         }
         else {
-            // TODO: error check
             log_message(LOG_LEVEL_ERROR, "Error while reading data from remote server");
             break;
         }
@@ -111,5 +111,16 @@ void *response_writer_thread(void *args) {
 
     stream_finish(stream);
     close(remote_server);
+
+    while (atomic_load(&stream->error) && (atomic_load(&stream->connections)) != 0) {
+        pthread_cond_wait(&stream->connect_event, &stream->lock);
+    }
+    if (atomic_load(&stream->error)) {
+        log_message(LOG_LEVEL_DEBUG, "Current conncetions count = %d", atomic_load(&stream->connections));
+        node_destroy(ctx->node);
+        log_message(LOG_LEVEL_INFO, "Error node was destroyed");
+    }
+    free_context(ctx);
+
     log_message(LOG_LEVEL_INFO, "[Writer] Thread finished");
 }

@@ -1,4 +1,4 @@
-#include "response_reader.h"
+#include "client_side.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,15 +13,12 @@ void *response_reader_thread(void *args) {
     log_message(LOG_LEVEL_INFO, "[Reader] Thread started...");
     context_t *ctx = (context_t *) args;
     sem_t *semaphore = ctx->semaphore;
-    cache_t *cache = ctx->cache;
     int client_socket = ctx->client_socket;
-    char *request = ctx->request;
 
-    stream_t *stream = cache_get_stream(cache, request);
+    stream_t *stream = ctx->node->stream;
     if (stream == NULL) {
-        log_message(LOG_LEVEL_ERROR, "[Reader] Failed to get stream from cache");
+        log_message(LOG_LEVEL_ERROR, "[Reader] Failed to get stream from cache. Node was removed from cache");
         sem_post(semaphore);
-        free_context(ctx);
         close(client_socket);
         return NULL;
     }
@@ -31,8 +28,8 @@ void *response_reader_thread(void *args) {
         int written = stream_read_to(stream, client_socket, MAX_BUFFER_SIZE, pos);
         if (written < 0) {
             log_message(LOG_LEVEL_ERROR, "[Reader] Failed to read from stream");
+            atomic_fetch_sub(&stream->connections, 1);
             sem_post(semaphore);
-            free_context(ctx);
             close(client_socket);
             return NULL;
         }
@@ -41,8 +38,11 @@ void *response_reader_thread(void *args) {
 
     stream_read_all_to(stream, client_socket, pos);
 
+    atomic_fetch_sub(&stream->connections, 1);
+    pthread_cond_signal(&stream->connect_event);
+
     close(client_socket);
     sem_post(semaphore);
-    free_context(ctx);
     log_message(LOG_LEVEL_INFO, "[Reader] Thread finished...");
+    return NULL;
 }

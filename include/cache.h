@@ -26,13 +26,15 @@ typedef struct cache {
     pthread_rwlock_t lock;
 } cache_t;
 
-cache_t *cache_init(size_t cap);
-
 void node_init(cache_node_t *node, const char *key, stream_t *stream);
 
 void node_destroy(cache_node_t *node);
 
-int cache_put(cache_t *cache, const char *key);
+cache_t *cache_init(size_t cap);
+
+cache_node_t *cache_put(cache_t *cache, const char *key, int *is_exist);
+
+cache_node_t *cache_remove(cache_t *cache, const char *key);
 
 stream_t *cache_get_stream(cache_t *cache, const char *key);
 

@@ -22,11 +22,12 @@ void stream_init(stream_t *stream, size_t capacity) {
     pthread_rwlock_init(&stream->rw_lock, NULL);
     pthread_mutex_init(&stream->lock, NULL);
     pthread_cond_init(&stream->can_write, NULL);
+    pthread_cond_init(&stream->connect_event, NULL);
     pthread_cond_init(&stream->can_read, NULL);
-    pthread_cond_init(&stream->can_del, NULL);
     atomic_init(&stream->readers, 0);
     atomic_init(&stream->is_finished, 0);
     atomic_init(&stream->error, 0);
+    atomic_init(&stream->connections, 0);
     http_resp_stat_t *response = calloc(1, sizeof(http_resp_stat_t));
     http_response_init(response);
     stream->stat = response;
@@ -83,7 +84,7 @@ size_t stream_read_to(stream_t *stream, const int fd, const size_t cnt, const si
         return -1;
     }
 
-    while (stream->size <= from || atomic_load(&stream->is_finished) == 0) {
+    while (stream->size <= from && atomic_load(&stream->is_finished) == 0) {
         log_message(LOG_LEVEL_DEBUG, "Reading is locked");
         pthread_cond_wait(&stream->can_read, &stream->lock);
     }
@@ -176,7 +177,7 @@ void stream_finish(stream_t *stream) {
 
 void stream_destroy(stream_t *stream) {
     log_message(LOG_LEVEL_INFO, "Starting \"stream_destroy\"...");
-    pthread_mutex_lock(&stream->lock);
+
     pthread_rwlock_wrlock(&stream->rw_lock);
 
     if (!stream) {
@@ -186,9 +187,9 @@ void stream_destroy(stream_t *stream) {
     if (stream->data) {
         free(stream->data);
     }
-    pthread_mutex_unlock(&stream->lock);
     pthread_rwlock_unlock(&stream->rw_lock);
     pthread_mutex_destroy(&stream->lock);
     pthread_cond_destroy(&stream->can_write);
     pthread_cond_destroy(&stream->can_read);
+    log_message(LOG_LEVEL_INFO, "\"stream_destroy\" finished successfully");
 }

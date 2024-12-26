@@ -16,12 +16,13 @@ typedef struct stream {
 
     pthread_cond_t can_read;
     pthread_cond_t can_write;
-    pthread_cond_t can_del;
+    pthread_cond_t connect_event;
     pthread_mutex_t lock;
 
     atomic_int is_finished;
     atomic_int readers;
     atomic_int error;
+    atomic_int connections;
 
     http_resp_stat_t *stat;
 } stream_t;

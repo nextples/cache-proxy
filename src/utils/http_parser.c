@@ -36,18 +36,13 @@ int http_response_parse(const char *http_response, http_resp_stat_t *result) {
     const char *headers_end = strstr(headers_start, "\r\n\r\n");
     if (!headers_end) {
         log_message(LOG_LEVEL_ERROR, "Failed while parsing http response: there is not headers end");
-        return -1;
     }
-
-    result->headers_length = headers_end - http_response + 4; // +4 for \r\n\r\n
-
-    size_t headers_size = result->headers_length;
-    if (headers_size >= MAX_BUFFER_SIZE) {
-        log_message(LOG_LEVEL_ERROR, "Failed while parsing http response: too long response");
-        return -1;
+    else {
+        result->headers_length = headers_end - http_response + 4; // +4 for \r\n\r\n
+        size_t headers_size = result->headers_length;
+        strncpy(result->headers, http_response, headers_size);
+        result->headers[headers_size] = '\0';
     }
-    strncpy(result->headers, http_response, headers_size);
-    result->headers[headers_size] = '\0';
 
     const char *content_length_key = "Content-Length:";
     const char *content_length_pos = strstr(headers_start, content_length_key);

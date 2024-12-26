@@ -22,14 +22,36 @@ void node_init(cache_node_t *node, const char *key, stream_t *stream) {
         log_message(LOG_LEVEL_ERROR, "Invalid key or stream provided");
         return;
     }
-
     node->key = strdup(key);
     node->stream = stream;
+    node->hc_next = NULL;
+    node->q_next = NULL;
+    node->q_prev = NULL;
 
     log_message(LOG_LEVEL_INFO, "Created cache node successfully");
 }
 
-void move_to_head(cache_t *cache, cache_node_t *node) {
+void node_destroy(cache_node_t *node) {
+    log_message(LOG_LEVEL_INFO, "Starting \"node_destroy\"...");
+    if (!node) {
+        log_message(LOG_LEVEL_WARNING, "Node is NULL");
+        return;
+    }
+
+    if (node->key) {
+        free(node->key);
+        node->key = NULL;
+    }
+
+    if (node->stream) {
+        stream_destroy(node->stream);
+        node->stream = NULL;
+    }
+
+    log_message(LOG_LEVEL_INFO, "Node cleared successfully");
+}
+
+void cache_move_to_head(cache_t *cache, cache_node_t *node) {
     log_message(LOG_LEVEL_INFO, "Starting \"move_to_head\"...");
     if (node == cache->q_head) {
         return;
@@ -59,7 +81,7 @@ void move_to_head(cache_t *cache, cache_node_t *node) {
     log_message(LOG_LEVEL_INFO, "Moving node to head successfully");
 }
 
-void evict_tail(cache_t *cache) {
+void cache_evict_tail(cache_t *cache) {
     log_message(LOG_LEVEL_INFO, "Starting \"evict_tail\"...");
     cache_node_t *to_remove = cache->q_tail;
 
@@ -89,10 +111,11 @@ void evict_tail(cache_t *cache) {
     log_message(LOG_LEVEL_INFO, "Evict tail node successfully");
 }
 
-int cache_put(cache_t *cache, const char *key) {
+cache_node_t *cache_put(cache_t *cache, const char *key, int *is_exist) {
     log_message(LOG_LEVEL_INFO, "Starting \"cache_put\"...");
     pthread_rwlock_wrlock(&cache->lock);
     log_message(LOG_LEVEL_DEBUG, "Cache rwlock locked to write");
+    *is_exist = 0;
 
     size_t index = hash_function(key);
 
@@ -101,11 +124,13 @@ int cache_put(cache_t *cache, const char *key) {
     while (current) {
         if (strcmp(current->key, key) == 0) {
             log_message(LOG_LEVEL_WARNING, "Node associated with key already exists");
+            *is_exist = 1;
+            atomic_fetch_add(&current->stream->connections, 1);
 
             pthread_rwlock_unlock(&cache->lock);
             log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
             log_message(LOG_LEVEL_INFO, "\"cache_put\" finished");
-            return 1;
+            return current;
         }
         current = current->hc_next;
     }
@@ -116,7 +141,7 @@ int cache_put(cache_t *cache, const char *key) {
         log_message(LOG_LEVEL_ERROR, "Failed to allocate memory for cache node");
         pthread_rwlock_unlock(&cache->lock);
         log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
-        return -1;
+        return NULL;
     }
 
     stream_t *stream = malloc(sizeof(stream_t));
@@ -125,7 +150,7 @@ int cache_put(cache_t *cache, const char *key) {
         free(node);
         pthread_rwlock_unlock(&cache->lock);
         log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
-        return -1;
+        return NULL;
     }
     stream_init(stream, STREAM_START_SIZE);
     node_init(node, key, stream);
@@ -148,13 +173,13 @@ int cache_put(cache_t *cache, const char *key) {
     cache->size++;
 
     if (cache->size > cache->cap) {
-        evict_tail(cache);
+        cache_evict_tail(cache);
     }
 
     pthread_rwlock_unlock(&cache->lock);
     log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
     log_message(LOG_LEVEL_INFO, "\"cache_put\" finished successfully");
-    return 0;
+    return node;
 }
 
 stream_t *cache_get_stream(cache_t *cache, const char *key) {
@@ -168,7 +193,7 @@ stream_t *cache_get_stream(cache_t *cache, const char *key) {
     while (current) {
         if (strcmp(current->key, key) == 0) {
             log_message(LOG_LEVEL_INFO, "Node associated with key found");
-            move_to_head(cache, current);
+            cache_move_to_head(cache, current);
 
             pthread_rwlock_unlock(&cache->lock);
             log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
@@ -181,22 +206,6 @@ stream_t *cache_get_stream(cache_t *cache, const char *key) {
     pthread_rwlock_unlock(&cache->lock);
     log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
     return NULL; // node not found
-}
-
-
-
-void node_destroy(cache_node_t *node) {
-    log_message(LOG_LEVEL_INFO, "Starting \"node_destroy\"...");
-    if (node) {
-        if (node->key) {
-            free(node->key);
-        }
-        if (node->stream) {
-            stream_destroy(node->stream);
-        }
-        free(node);
-    }
-    log_message(LOG_LEVEL_INFO, "Node destroyed successfully");
 }
 
 cache_t *cache_init(size_t cap) {
@@ -215,7 +224,9 @@ cache_t *cache_init(size_t cap) {
         return NULL;
     }
 
-    cache->q_head = cache->q_tail = NULL;
+    cache->q_head = NULL;
+    cache->q_tail = NULL;
+
     cache->cap = cap;
     cache->size = 0;
 
@@ -227,6 +238,52 @@ cache_t *cache_init(size_t cap) {
     }
     log_message(LOG_LEVEL_INFO, "\"cache_init\" finished successfully");
     return cache;
+}
+
+cache_node_t *cache_remove(cache_t *cache, const char *key) {
+    log_message(LOG_LEVEL_INFO, "Starting \"cache_remove\"...");
+    pthread_rwlock_wrlock(&cache->lock);
+    log_message(LOG_LEVEL_DEBUG, "Cache rwlock locked to write");
+
+    size_t index = hash_function(key);
+    cache_node_t **chain = &cache->hash_table[index];
+    cache_node_t *current = *chain;
+
+    while (current) {
+        if (strcmp(current->key, key) == 0) {
+            log_message(LOG_LEVEL_INFO, "Node associated with key found");
+
+            // remove from hash chain
+            *chain = current->hc_next;
+
+            // remove from queue
+            if (current->q_prev) {
+                current->q_prev->q_next = current->q_next;
+            }
+            if (current->q_next) {
+                current->q_next->q_prev = current->q_prev;
+            }
+            if (current == cache->q_head) {
+                cache->q_head = current->q_next;
+            }
+            if (current == cache->q_tail) {
+                cache->q_tail = current->q_prev;
+            }
+
+            cache->size--;
+            pthread_rwlock_unlock(&cache->lock);
+            log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
+            log_message(LOG_LEVEL_INFO, "\"cache_remove\" finished successfully");
+            return current;
+        }
+        chain = &current->hc_next;
+        current = current->hc_next;
+    }
+
+    log_message(LOG_LEVEL_INFO, "Node associated with key not found");
+    pthread_rwlock_unlock(&cache->lock);
+    log_message(LOG_LEVEL_DEBUG, "Cache rwlock unlocked");
+    return NULL; // node not found
 }
 
 void cache_destroy(cache_t *cache) {
