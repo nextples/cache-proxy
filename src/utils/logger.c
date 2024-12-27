@@ -8,16 +8,10 @@
 #include <stdlib.h>
 
 static FILE *log_file = NULL;
-static LogLevel current_log_level = LOG_LEVEL_DEBUG;
+static log_lvl current_log_level = LOG_LEVEL_DEBUG;
 static int log_to_console = 1;
 
-/**
- * @brief Converts a log level enum value to its corresponding string representation.
- *
- * @param level The log level (e.g., LOG_LEVEL_DEBUG, LOG_LEVEL_INFO).
- * @return A string representing the log level, or "UNKNOWN" for unrecognized levels.
- */
-const char* log_level_to_string(LogLevel level) {
+const char* log_level_to_string(const log_lvl level) {
     switch (level) {
         case LOG_LEVEL_DEBUG:   return "DEBUG";
         case LOG_LEVEL_INFO:    return "INFO";
@@ -27,13 +21,7 @@ const char* log_level_to_string(LogLevel level) {
     }
 }
 
-/**
- * @brief Converts a log level to a corresponding ANSI color code for console output.
- *
- * @param level The log level (e.g., LOG_LEVEL_DEBUG, LOG_LEVEL_INFO).
- * @return A string representing the color code, or COLOR_RESET for unrecognized levels.
- */
-const char* log_level_to_color(LogLevel level) {
+const char* log_level_to_color(const log_lvl level) {
     switch (level) {
         case LOG_LEVEL_DEBUG:   return COLOR_DEBUG;
         case LOG_LEVEL_INFO:    return COLOR_INFO;
@@ -43,15 +31,7 @@ const char* log_level_to_color(LogLevel level) {
     }
 }
 
-/**
- * @brief Retrieves the current system time in the format "[YYYY-MM-DD HH:MM:SS]".
- *
- * @param buffer A buffer to store the formatted time string.
- * @param size The size of the buffer.
- *
- * @note The buffer size should be at least 20 bytes to accommodate the formatted string.
- */
-void get_current_time(char *buffer, size_t size) {
+void get_current_time(char *buffer, const size_t size) {
     time_t raw_time;
 
     time(&raw_time);
@@ -60,16 +40,7 @@ void get_current_time(char *buffer, size_t size) {
     strftime(buffer, size, "%Y-%m-%d %H:%M:%S", time_info);
 }
 
-/**
- * @brief Initializes the logger by setting the log level, output mode, and optional log file.
- *
- * @param file_path Path to the log file. If NULL, logging to a file is disabled.
- * @param level The minimum log level to record (e.g., LOG_LEVEL_INFO).
- * @param console_output Flag to enable or disable console output (1 to enable, 0 to disable).
- *
- * @note If a file path is provided and the file cannot be opened, the function exits with an error.
- */
-void logger_init(const char *file_path, LogLevel level, int console_output) {
+void logger_init(const char *file_path, const log_lvl level, const int console_output) {
     current_log_level = level;
     log_to_console = console_output;
 
@@ -82,11 +53,6 @@ void logger_init(const char *file_path, LogLevel level, int console_output) {
     }
 }
 
-/**
- * @brief Closes the logger by flushing and closing the log file, if one is open.
- *
- * @note This function should be called before the program exits to release resources properly.
- */
 void logger_close() {
     if (log_file) {
         fclose(log_file);
@@ -94,20 +60,7 @@ void logger_close() {
     }
 }
 
-/**
- * @brief Logs a message with the specified log level.
- *
- * Formats the message with a timestamp, thread ID, log level, and the provided message.
- * Supports variable argument formatting.
- *
- * @param level The log level for the message (e.g., LOG_LEVEL_ERROR).
- * @param format A printf-style format string for the log message.
- * @param ... Additional arguments to format the message.
- *
- * @note Messages are logged only if their level is greater than or equal to the current log level.
- * Logs are written to the file (if open) and optionally to the console with appropriate colors.
- */
-void log_message(LogLevel level, const char *format, ...) {
+void log_message(const log_lvl level, const char *format, ...) {
     if (level < current_log_level) {
         return;
     }

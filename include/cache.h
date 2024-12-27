@@ -4,35 +4,40 @@
 #include <stddef.h>
 #include <pthread.h>
 
-typedef struct cache_node_t {
+#include "stream.h"
+
+typedef struct cache_node {
     char *key;                      // request
-    char *response;
-    size_t response_size;
-    time_t expires_at;              // time during which the cache is considered relevant
-    struct cache_node_t *prev;
-    struct cache_node_t *next;
-    struct cache_node_t *hash_next;
+    stream_t *stream;
+
+    struct cache_node *q_prev;
+    struct cache_node *q_next;
+    struct cache_node *hc_next;     // hash-chain next
 } cache_node_t;
 
-typedef struct {
+typedef struct cache {
     cache_node_t **hash_table;
-    cache_node_t *head;
-    cache_node_t *tail;
-    size_t max_size;
-    size_t current_size;
-    pthread_mutex_t lock;
+    cache_node_t *q_head;
+    cache_node_t *q_tail;
+
+    size_t cap;
+    size_t size;
+
+    pthread_rwlock_t lock;
 } cache_t;
 
-cache_node_t *create_cache_node(const char *key, const char *response, const size_t response_size, const time_t expires_at);
+void node_init(cache_node_t *node, const char *key, stream_t *stream);
 
-void free_cache_node(cache_node_t *node);
+void node_destroy(cache_node_t *node);
 
-cache_t *create_cache(size_t max_size);
+cache_t *cache_init(size_t cap);
 
-int cache_put(cache_t *cache, cache_node_t *new_node);
+cache_node_t *cache_put(cache_t *cache, const char *key, int *is_exist);
 
-cache_node_t *cache_get(cache_t *cache, const char *key);
+cache_node_t *cache_remove(cache_t *cache, const char *key);
 
-void delete_cache(cache_t *cache);
+stream_t *cache_get_stream(cache_t *cache, const char *key);
+
+void cache_destroy(cache_t *cache);
 
 #endif //CACHE_H

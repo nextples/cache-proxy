@@ -1,5 +1,6 @@
 #include "server.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -13,21 +14,13 @@
 
 int update_connection_header(char *request);
 
-/**
- * @brief Creates and configures a server socket for listening to incoming client connections.
- *
- * This function sets up a socket, binds it to a specified port, and switches it to listening mode.
- * It ensures proper error handling for socket creation, binding, and listening.
- *
- * @return The file descriptor for the server socket if successful, or SOCKET_ERROR on failure.
- *
- * @note The function logs detailed information about the socket's creation and configuration status.
- */
 int create_server_socket() {
+    log_message(LOG_LEVEL_INFO, "Starting \'create_server_socket\"...");
+
     struct sockaddr_in server_addr;
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket == -1) {
-        log_message(LOG_LEVEL_ERROR, "Error while creating server socket");
+        log_message(LOG_LEVEL_ERROR, "Error while creating server socket: %s", strerror(errno));
         return SOCKET_ERROR;
     }
 
@@ -36,45 +29,32 @@ int create_server_socket() {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
-    log_message(LOG_LEVEL_INFO, "Server socket created successfully");
-
     int err = bind(server_socket, (struct sockaddr *) &server_addr, sizeof(server_addr));
     if (err == BIND_ERROR) {
-        log_message(LOG_LEVEL_ERROR, "Error while binding server socket ");
-        perror("");
+        log_message(LOG_LEVEL_ERROR, "Error while binding server socket: %s", strerror(errno));
         close(server_socket);
         return SOCKET_ERROR;
     }
-    log_message(LOG_LEVEL_INFO, "Server socket bound to %d", server_addr.sin_addr.s_addr);
+    log_message(LOG_LEVEL_DEBUG, "Server socket bound to %d", server_addr.sin_addr.s_addr);
 
     // switch to listen mode
     err = listen(server_socket, MAX_USERS_COUNT);
     if (err == LISTEN_ERROR) {
-        log_message(LOG_LEVEL_ERROR, "Error while listening on server socket");
+        log_message(LOG_LEVEL_ERROR, "Error while listening on server socket: %s", strerror(errno));
         close(server_socket);
         return SOCKET_ERROR;
     }
+    log_message(LOG_LEVEL_INFO, "\"create_server_socket\" finished successfully");
     return server_socket;
 }
 
-/**
- * @brief Establishes a connection to a remote server.
- *
- * This function resolves the host's address using DNS, creates a socket, and connects to the resolved address.
- *
- * @param host The hostname or IP address of the remote server.
- * @return The file descriptor for the connected socket if successful, or SOCKET_ERROR on failure.
- *
- * @note Proper error handling is implemented for DNS resolution, socket creation, and connection attempts.
- * The function logs relevant details for debugging.
- */
 int connect_to_remote(char *host) {
     struct addrinfo hints = {0}, *res0;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
     int status = getaddrinfo(host, HTTP, &hints, &res0);
-    if (status != ADD_INFO_STATUS_ERROR) {
+    if (status != ADDR_INFO_STATUS_ERROR) {
         log_message(LOG_LEVEL_ERROR, "Error while getting addr info");
         freeaddrinfo(res0);
         return SOCKET_ERROR;
@@ -100,9 +80,8 @@ int connect_to_remote(char *host) {
     return dest_socket;
 }
 
-//TODO: write the annotation
 int read_request(int client_socket, char *request) {
-    log_message(LOG_LEVEL_INFO, "Reading request from client");
+    log_message(LOG_LEVEL_INFO, "Reading request from client...");
     if (request == NULL) {
         log_message(LOG_LEVEL_ERROR, "Error while reading request. Request's buffer is not initialized");
         return EXIT_FAILURE;

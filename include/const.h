@@ -6,28 +6,23 @@
 #define END_STR '\0'
 
 enum {
-    MAX_BUFFER_SIZE = 1024,                     // 1 KB
+    MAX_BUFFER_SIZE = 1024 * 8,                 // 8 KB
     MAX_REQUEST_SIZE = 1024 * 64,               // 64 KB
-    PORT = 8081,
-    HOST_SIZE = 50,
+    PORT = 8080,
+    HOST_SIZE = 256 * sizeof(char),
     MAX_USERS_COUNT = 10,
-    MAX_CACHE_RECORD_SIZE = 1024 * 1024 * 4,    // 4 MB
-    WAIT_SERVER_RESPONSE_TIMEOUT = 1000,        // in ms
-    CACHE_RECORD_TTL = 300,                     // in sec
     CACHE_SIZE = 1024,
     HASH_TABLE_SIZE = CACHE_SIZE * 2,
+    STREAM_START_SIZE = 1024 * 1024,            // 1 MB
 };
 
 enum error {
     SOCKET_ERROR = -1,
-    SEND_ERROR = -1,
     LISTEN_ERROR = -1,
     BIND_ERROR = -1,
     WRITE_ERROR = -1,
-    NOT_FOUND_CACHE = -1,
-    ADD_INFO_STATUS_ERROR = 0,
+    ADDR_INFO_STATUS_ERROR = 0,
     PTHREAD_ERROR = -1,
-    CACHE_ERROR = -1,
 };
 
 #endif //CONST_H
